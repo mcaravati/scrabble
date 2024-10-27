@@ -1,4 +1,5 @@
 use rand::prelude::SliceRandom;
+use uuid::Uuid;
 use crate::{Error, Tile};
 use crate::player::Player;
 
@@ -65,11 +66,11 @@ impl Game {
         self.tile_bag.is_empty()
     }
 
-    fn get_player_ids(&self) -> Vec<u64> {
-        self.players.iter().map(|x| x.get_id()).collect()
+    fn get_player_ids(&self) -> Vec<Uuid> {
+        self.players.iter().map(|x| x.get_id().clone()).collect()
     }
 
-    fn give_tile(&mut self, player_id: u64) -> Result<(), Error> {
+    fn give_tile(&mut self, player_id: &Uuid) -> Result<(), Error> {
         let tile = self.tile_bag.pop().ok_or(Error::NoMoreTiles)?;
 
         if let Ok(player) = self.get_player(player_id) {
@@ -82,7 +83,7 @@ impl Game {
         Ok(())
     }
 
-    fn get_player(&mut self, player_id: u64) -> Result<&mut Player, Error> {
+    fn get_player(&mut self, player_id: &Uuid) -> Result<&mut Player, Error> {
         self.players.iter_mut().find(|x| x.get_id() == player_id).ok_or(Error::PlayerNotRegistered)
     }
 
@@ -95,7 +96,7 @@ impl Game {
 
         for player_id in player_ids {
             for _ in 0..7 {
-                self.give_tile(player_id)?
+                self.give_tile(&player_id)?
             }
         }
 
@@ -122,6 +123,8 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+    use uuid::Uuid;
     use crate::{Game, Player};
 
     // === Game.new()
@@ -138,21 +141,25 @@ mod tests {
     fn game_cannot_have_more_than_4_players() {
         let mut game = Game::new();
 
-        for id in 0..4 {
-            assert!(game.register_player(Player::new(id, "Player")).is_ok());
+        for _ in 0..4 {
+            let uuid = Uuid::new_v4();
+            assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
         }
 
-        assert!(game.register_player(Player::new(4, "Player")).is_err());
+        let uuid = Uuid::new_v4();
+        assert!(game.register_player(Player::new(&uuid, "Player")).is_err());
     }
 
     #[test]
     fn game_cannot_have_multiple_players_with_same_id() {
         let mut game = Game::new();
 
-        assert!(game.register_player(Player::new(0, "Player")).is_ok());
-        assert!(game.register_player(Player::new(1, "Player")).is_ok());
+        let uuid = Uuid::new_v4();
+        assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
 
-        assert!(game.register_player(Player::new(1, "Player")).is_err());
+        let uuid = Uuid::new_v4();
+        assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
+        assert!(game.register_player(Player::new(&uuid, "Player")).is_err());
     }
 
     #[test]
@@ -168,7 +175,8 @@ mod tests {
             let mut game = Game::new();
 
             // One player
-            game.register_player(Player::new(0, "Player")).unwrap();
+            let uuid = Uuid::new_v4();
+            game.register_player(Player::new(&uuid, "Player")).unwrap();
             assert!(game.start().is_err());
         }
 
@@ -176,9 +184,12 @@ mod tests {
         for n_players in 2..4 {
             let mut game = Game::new();
 
-            game.register_player(Player::new(0, "Player")).unwrap();
+            let uuid = Uuid::new_v4();
+            game.register_player(Player::new(&uuid, "Player")).unwrap();
+
             for id in 1..n_players {
-                game.register_player(Player::new(id, "Player")).unwrap();
+                let uuid = Uuid::new_v4();
+                game.register_player(Player::new(&uuid, "Player")).unwrap();
             }
 
             assert!(game.start().is_ok());
@@ -189,47 +200,60 @@ mod tests {
     fn game_can_give_a_registered_player() {
         let mut game = Game::new();
 
-        assert!(game.register_player(Player::new(0, "Player0")).is_ok());
-        assert!(game.register_player(Player::new(1, "Player1")).is_ok());
+        let uuid_0 = Uuid::new_v4();
+        let uuid_1 = Uuid::new_v4();
 
-        assert!(game.get_player(0).is_ok());
-        assert_eq!(game.get_player(0).unwrap().get_id(), 0);
-        assert_eq!(game.get_player(0).unwrap().get_name(), "Player0");
+        assert!(game.register_player(Player::new(&uuid_0, "Player0")).is_ok());
+        assert!(game.register_player(Player::new(&uuid_1, "Player1")).is_ok());
 
-        assert!(game.get_player(1).is_ok());
-        assert_eq!(game.get_player(1).unwrap().get_id(), 1);
-        assert_eq!(game.get_player(1).unwrap().get_name(), "Player1");
+        assert!(game.get_player(&uuid_0).is_ok());
+        assert_eq!(*game.get_player(&uuid_0).unwrap().get_id(), uuid_0);
+        assert_eq!(game.get_player(&uuid_0).unwrap().get_name(), "Player0");
+
+        assert!(game.get_player(&uuid_1).is_ok());
+        assert_eq!(*game.get_player(&uuid_1).unwrap().get_id(), uuid_1);
+        assert_eq!(game.get_player(&uuid_1).unwrap().get_name(), "Player1");
     }
 
     #[test]
     fn game_cannot_give_player_not_registered() {
         let mut game = Game::new();
 
-        assert!(game.register_player(Player::new(0, "Player0")).is_ok());
-        assert!(game.register_player(Player::new(1, "Player1")).is_ok());
+        let uuid = Uuid::new_v4();
+        assert!(game.register_player(Player::new(&uuid, "Player0")).is_ok());
 
-        assert!(game.get_player(999).is_err()); // Unknown player ID
+        let uuid = Uuid::new_v4();
+        assert!(game.register_player(Player::new(&uuid, "Player1")).is_ok());
+
+        let uuid = Uuid::new_v4();
+        assert!(game.get_player(&uuid).is_err()); // Unknown player ID
     }
 
     #[test]
     fn game_must_give_7_tiles_on_start() {
         let mut game = Game::new();
 
-        game.register_player(Player::new(0, "Player1")).unwrap();
-        game.register_player(Player::new(1, "Player2")).unwrap();
+        let uuid_0 = Uuid::new_v4();
+        let uuid_1 = Uuid::new_v4();
+
+        game.register_player(Player::new(&uuid_0, "Player0")).unwrap();
+        game.register_player(Player::new(&uuid_1, "Player1")).unwrap();
 
         game.start().unwrap();
 
-        assert_eq!(game.get_player(0).unwrap().get_number_of_tiles(), 7);
-        assert_eq!(game.get_player(1).unwrap().get_number_of_tiles(), 7);
+        assert_eq!(game.get_player(&uuid_0).unwrap().get_number_of_tiles(), 7);
+        assert_eq!(game.get_player(&uuid_1).unwrap().get_number_of_tiles(), 7);
     }
 
     #[test]
     fn next_turn_works() {
         let mut game = Game::new();
 
-        game.register_player(Player::new(0, "Player1")).unwrap();
-        game.register_player(Player::new(1, "Player2")).unwrap();
+        let uuid_0 = Uuid::new_v4();
+        let uuid_1 = Uuid::new_v4();
+
+        game.register_player(Player::new(&uuid_0, "Player0")).unwrap();
+        game.register_player(Player::new(&uuid_1, "Player1")).unwrap();
 
         assert_eq!(game.current_player_index, 0);
         assert_eq!(game.next_turn(), 1);

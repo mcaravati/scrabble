@@ -1,8 +1,10 @@
+use uuid::Uuid;
 use crate::Tile;
 use crate::Error;
 
+#[derive(Clone)]
 pub struct Player {
-    id: u64,
+    id: Uuid,
     name: String,
     tiles: Vec<Tile>
 }
@@ -14,9 +16,9 @@ impl PartialEq for Player {
 }
 
 impl Player {
-    pub fn new(id: u64, name: &str, ) -> Player {
+    pub fn new(id: &Uuid, name: &str, ) -> Player {
         Player {
-            id,
+            id: id.clone(),
             name: name.to_string(),
             tiles: Vec::new()
         }
@@ -44,7 +46,7 @@ impl Player {
         &self.name
     }
 
-    pub fn get_id(&self) -> u64 {
-        self.id
+    pub fn get_id(&self) -> &Uuid {
+        &self.id
     }
 }
