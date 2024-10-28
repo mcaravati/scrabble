@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant Browser
+    participant Server
+    participant Redis
+
+    %% 1. User opens game
+    Browser->>Browser: Check for sessionId in localStorage
+    alt sessionId exists
+        Browser->>Server: Connect with sessionId
+    else No sessionId
+        Browser->>Browser: Generate sessionId and store in localStorage
+        Browser->>Server: Connect with new sessionId
+    end
+
+    %% 2. Server handles connection
+    Server->>Redis: Check if sessionId exists
+    alt sessionId exists in Redis
+        Redis-->>Server: Return sessionData
+        Server->>Browser: Emit 'restore-session' with sessionData
+        Browser->>Browser: Restore game state
+    else sessionId not in Redis
+        Server->>Redis: Store new session with initial state
+    end
+
+    %% 3. User updates game state
+    Browser->>Server: Emit 'update-game-state' with new state
+    Server->>Redis: Update session data with new state
+
+    %% 4. User refreshes the page
+    Browser->>Browser: Refresh (connection lost)
+    Server->>Server: Detect disconnect (optional)
+
+    %% 5. User reconnects
+    Browser->>Server: Reconnect with same sessionId
+    Server->>Redis: Retrieve sessionData for sessionId
+    Redis-->>Server: Return sessionData
+    Server->>Browser: Emit 'restore-session' with sessionData
+    Browser->>Browser: Restore game state

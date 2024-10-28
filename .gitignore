@@ -1,2 +1,4 @@
+client/.vscode
 server/target
+server/.idea
 .idea

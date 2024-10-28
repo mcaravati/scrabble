@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use rand::prelude::SliceRandom;
 use uuid::Uuid;
 use crate::{Error, Tile};
@@ -18,6 +19,7 @@ const BOARD_SIZE: usize = 15;
 pub struct Game {
     board: [[char; BOARD_SIZE]; BOARD_SIZE],
     tile_bag: Vec<Tile>,
+    racks: HashMap<Uuid, Vec<Tile>>,
     players: Vec<Player>,
     current_player_index: usize,
 }
@@ -27,6 +29,7 @@ impl Game {
         let mut game = Game {
             board: [[' ' as char; BOARD_SIZE]; BOARD_SIZE],
             tile_bag: Vec::new(),
+            racks: HashMap::new(),
             players: Vec::new(),
             current_player_index: 0,
         };
@@ -46,7 +49,7 @@ impl Game {
         self.tile_bag.shuffle(&mut rng);
     }
 
-    fn register_player(&mut self, player: Player) -> Result<(), Error> {
+    pub fn register_player(&mut self, player: Player) -> Result<&Player, Error> {
         // No more than 4 players
         if self.players.len() >= 4 {
             return Err(Error::TooManyPlayer);
@@ -54,8 +57,10 @@ impl Game {
             return Err(Error::DuplicatePlayerId)
         }
 
+        self.racks.insert(*player.get_id(), Vec::new());
         self.players.push(player);
-        Ok(())
+
+        Ok(self.players.last().unwrap())
     }
 
     fn is_player_registered(&self, player: &Player) -> bool {
@@ -73,18 +78,31 @@ impl Game {
     fn give_tile(&mut self, player_id: &Uuid) -> Result<(), Error> {
         let tile = self.tile_bag.pop().ok_or(Error::NoMoreTiles)?;
 
-        if let Ok(player) = self.get_player(player_id) {
-            player.add_tile(tile)?;
-        } else {
-            self.tile_bag.push(tile);
-            return Err(Error::PlayerNotRegistered);
-        }
+        match self.racks.get_mut(player_id) {
+            Some(rack) => {
+                if rack.len() == 7 {
+                    return Err(Error::PlayerHas7Tiles);
+                }
 
-        Ok(())
+                rack.push(tile);
+                Ok(())
+            },
+            None => {
+                self.tile_bag.push(tile);
+                Err(Error::PlayerNotRegistered)
+            }
+        }
     }
 
     fn get_player(&mut self, player_id: &Uuid) -> Result<&mut Player, Error> {
         self.players.iter_mut().find(|x| x.get_id() == player_id).ok_or(Error::PlayerNotRegistered)
+    }
+
+    fn get_player_tiles(&self, player_uuid: &Uuid) -> Result<&Vec<Tile>, Error> {
+        match self.racks.get(player_uuid) {
+            Some(rack) => Ok(rack),
+            None => Err(Error::PlayerNotRegistered)
+        }
     }
 
     fn start(&mut self) -> Result<(), Error> {
@@ -123,7 +141,6 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
     use uuid::Uuid;
     use crate::{Game, Player};
 
@@ -187,7 +204,7 @@ mod tests {
             let uuid = Uuid::new_v4();
             game.register_player(Player::new(&uuid, "Player")).unwrap();
 
-            for id in 1..n_players {
+            for _ in 1..n_players {
                 let uuid = Uuid::new_v4();
                 game.register_player(Player::new(&uuid, "Player")).unwrap();
             }
@@ -241,8 +258,8 @@ mod tests {
 
         game.start().unwrap();
 
-        assert_eq!(game.get_player(&uuid_0).unwrap().get_number_of_tiles(), 7);
-        assert_eq!(game.get_player(&uuid_1).unwrap().get_number_of_tiles(), 7);
+        assert_eq!(game.get_player_tiles(&uuid_0).unwrap().len(), 7);
+        assert_eq!(game.get_player_tiles(&uuid_1).unwrap().len(), 7);
     }
 
     #[test]
