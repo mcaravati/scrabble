@@ -63,6 +63,11 @@ impl Game {
         Ok(self.players.last().unwrap())
     }
 
+    pub fn remove_player(&mut self, player_uuid: &Uuid) {
+        self.players.retain(|x| x.get_id() != player_uuid);
+        self.racks.remove(player_uuid);
+    }
+
     fn is_player_registered(&self, player: &Player) -> bool {
         self.players.contains(player)
     }
@@ -142,7 +147,8 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use uuid::Uuid;
-    use crate::{Game, Player};
+    use crate::Player;
+    use super::Game;
 
     // === Game.new()
 
