@@ -1,4 +1,4 @@
-use socketioxide::extract::AckSender;
+use socketioxide::extract::{AckSender, SocketRef};
 use uuid::Uuid;
 use crate::player::Player;
 
@@ -12,5 +12,13 @@ pub enum Event {
         game_uuid: Uuid,
         player_uuid: Uuid,
         ack: AckSender
+    },
+    ListGames {
+        ack_sender: AckSender
+    },
+    WhoAmI {
+        socket_ref: SocketRef,
+        player_uuid: Uuid,
+        ack_sender: AckSender
     }
 }

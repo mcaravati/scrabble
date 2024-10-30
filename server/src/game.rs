@@ -99,8 +99,8 @@ impl Game {
         }
     }
 
-    fn get_player(&mut self, player_id: &Uuid) -> Result<&mut Player, Error> {
-        self.players.iter_mut().find(|x| x.get_id() == player_id).ok_or(Error::PlayerNotRegistered)
+    pub fn get_player(&self, player_id: &Uuid) -> Result<&Player, Error> {
+        self.players.iter().find(|x| x.get_id() == player_id).ok_or(Error::PlayerNotRegistered)
     }
 
     fn get_player_tiles(&self, player_uuid: &Uuid) -> Result<&Vec<Tile>, Error> {

@@ -3,18 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/assets/css/lobby.css">
     <title>Socket.IO Client</title>
 </head>
 <body>
     <h1>Socket.IO Client</h1>
 
+    <ul id="game-list">
+
+    </ul>
+
     <div>
         <input type="text" id="username-field" />
         <button id="register-button">Register</button>
+        <button id="clear-button">Clear</button>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
     <script src="/script.js"></script>
     <script src="/registration.js"></script>
+    <script src="/lobby.js"></script>
 </body>
 </html>
