@@ -4,7 +4,7 @@ use uuid::Uuid;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
     id: Uuid,
-    name: String
+    name: String,
 }
 
 impl PartialEq for Player {
@@ -17,7 +17,7 @@ impl Player {
     pub fn new(id: &Uuid, name: &str) -> Player {
         Player {
             id: id.clone(),
-            name: name.to_string()
+            name: name.to_string(),
         }
     }
 

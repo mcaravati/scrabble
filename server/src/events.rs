@@ -1,24 +1,7 @@
-use socketioxide::extract::{AckSender, SocketRef};
-use uuid::Uuid;
-use crate::player::Player;
+use crate::game::GameEvent;
+use crate::lobby::LobbyEvent;
 
 pub enum Event {
-    Registration {
-        game_uuid: Uuid,
-        player: Player,
-        ack: AckSender
-    },
-    Logout {
-        game_uuid: Uuid,
-        player_uuid: Uuid,
-        ack: AckSender
-    },
-    ListGames {
-        ack_sender: AckSender
-    },
-    WhoAmI {
-        socket_ref: SocketRef,
-        player_uuid: Uuid,
-        ack_sender: AckSender
-    }
+    Lobby(LobbyEvent),
+    Game(GameEvent),
 }

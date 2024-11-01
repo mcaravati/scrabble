@@ -1,285 +1,193 @@
-use std::collections::HashMap;
-use rand::prelude::SliceRandom;
-use uuid::Uuid;
-use crate::{Error, Tile};
+use crate::events::Event;
+use crate::events::Event::Game;
+use crate::manager::Manager;
 use crate::player::Player;
+use crate::response::Response;
+use serde::{Deserialize, Serialize};
+use socketioxide::extract::{AckSender, Data, SocketRef};
+use tokio::sync::mpsc;
+use tracing::debug;
+use uuid::Uuid;
 
-const TILE_BAG: [(Tile, usize); 26] = [
-    (Tile('A', 1), 9), (Tile('B', 3), 2), (Tile('C', 3), 2), (Tile('D', 2), 4),
-    (Tile('E', 1), 12), (Tile('F', 4), 2), (Tile('G', 2), 3), (Tile('H', 4), 2),
-    (Tile('I', 1), 9), (Tile('J', 8), 1), (Tile('K', 5), 1), (Tile('L', 1), 4),
-    (Tile('M', 3), 2), (Tile('N', 1), 6), (Tile('O', 1), 8), (Tile('P', 3), 2),
-    (Tile('Q', 10), 1), (Tile('R', 1), 6), (Tile('S', 1), 4), (Tile('T', 1), 6),
-    (Tile('U', 1), 4), (Tile('V', 4), 2), (Tile('W', 4), 2), (Tile('X', 8), 1),
-    (Tile('Y', 4), 2), (Tile('Z', 10), 1),
-];
-
-const BOARD_SIZE: usize = 15;
-
-pub struct Game {
-    board: [[char; BOARD_SIZE]; BOARD_SIZE],
-    tile_bag: Vec<Tile>,
-    racks: HashMap<Uuid, Vec<Tile>>,
-    players: Vec<Player>,
-    current_player_index: usize,
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase", untagged)]
+enum GameRequest {
+    Register { game_uuid: Uuid, username: String },
+    Logout { game_uuid: Uuid, player_uuid: Uuid },
+    Id { player_uuid: Uuid },
 }
 
-impl Game {
-    pub fn new() -> Self {
-        let mut game = Game {
-            board: [[' ' as char; BOARD_SIZE]; BOARD_SIZE],
-            tile_bag: Vec::new(),
-            racks: HashMap::new(),
-            players: Vec::new(),
-            current_player_index: 0,
-        };
+pub enum GameEvent {
+    Registration {
+        game_uuid: Uuid,
+        player: Player,
+        ack: AckSender,
+    },
+    Logout {
+        game_uuid: Uuid,
+        player_uuid: Uuid,
+        ack: AckSender,
+    },
+    WhoAmI {
+        socket_ref: SocketRef,
+        player_uuid: Uuid,
+        ack_sender: AckSender,
+    },
+}
 
-        game.init_tile_bag();
-        game
-    }
+async fn handle_registration_request(
+    socket: SocketRef,
+    data: GameRequest,
+    ack: AckSender,
+    sender: mpsc::Sender<Event>,
+) {
+    if let GameRequest::Register {
+        game_uuid,
+        username,
+    } = data
+    {
+        if socket.extensions.get::<Player>().is_none() {
+            let uuid = Uuid::new_v4();
+            let player = Player::new(&uuid, &username);
 
-    fn init_tile_bag(&mut self) {
-        for &(tile, amount) in &TILE_BAG {
-            for _ in 0..amount {
-                self.tile_bag.push(tile);
-            }
+            // Inform the manager there's a new player
+            sender
+                .send(Event::Game(GameEvent::Registration {
+                    game_uuid,
+                    player: player.clone(),
+                    ack,
+                }))
+                .await
+                .unwrap();
+
+            // Associate the player to the socket for easy access
+            socket.extensions.insert::<Player>(player);
+
+            debug!(?uuid, %username, "Player connected");
         }
-
-        let mut rng = rand::thread_rng();
-        self.tile_bag.shuffle(&mut rng);
-    }
-
-    pub fn register_player(&mut self, player: Player) -> Result<&Player, Error> {
-        // No more than 4 players
-        if self.players.len() >= 4 {
-            return Err(Error::TooManyPlayer);
-        } else if self.players.iter().any(|x| x.get_id() == player.get_id()) {
-            return Err(Error::DuplicatePlayerId)
-        }
-
-        self.racks.insert(*player.get_id(), Vec::new());
-        self.players.push(player);
-
-        Ok(self.players.last().unwrap())
-    }
-
-    pub fn remove_player(&mut self, player_uuid: &Uuid) {
-        self.players.retain(|x| x.get_id() != player_uuid);
-        self.racks.remove(player_uuid);
-    }
-
-    fn is_player_registered(&self, player: &Player) -> bool {
-        self.players.contains(player)
-    }
-
-    fn are_there_tiles_remaining(&self) -> bool {
-        self.tile_bag.is_empty()
-    }
-
-    fn get_player_ids(&self) -> Vec<Uuid> {
-        self.players.iter().map(|x| x.get_id().clone()).collect()
-    }
-
-    fn give_tile(&mut self, player_id: &Uuid) -> Result<(), Error> {
-        let tile = self.tile_bag.pop().ok_or(Error::NoMoreTiles)?;
-
-        match self.racks.get_mut(player_id) {
-            Some(rack) => {
-                if rack.len() == 7 {
-                    return Err(Error::PlayerHas7Tiles);
-                }
-
-                rack.push(tile);
-                Ok(())
-            },
-            None => {
-                self.tile_bag.push(tile);
-                Err(Error::PlayerNotRegistered)
-            }
-        }
-    }
-
-    pub fn get_player(&self, player_id: &Uuid) -> Result<&Player, Error> {
-        self.players.iter().find(|x| x.get_id() == player_id).ok_or(Error::PlayerNotRegistered)
-    }
-
-    fn get_player_tiles(&self, player_uuid: &Uuid) -> Result<&Vec<Tile>, Error> {
-        match self.racks.get(player_uuid) {
-            Some(rack) => Ok(rack),
-            None => Err(Error::PlayerNotRegistered)
-        }
-    }
-
-    fn start(&mut self) -> Result<(), Error> {
-        if self.players.len() < 2 {
-            return Err(Error::NotEnoughPlayers);
-        }
-
-        let player_ids = self.get_player_ids();
-
-        for player_id in player_ids {
-            for _ in 0..7 {
-                self.give_tile(&player_id)?
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn display_board(&self) {
-        println!("Initial board:");
-        for row in self.board {
-            print!("|");
-            for cell in row {
-                print!("{} ", cell);
-            }
-            println!("|");
-        }
-    }
-
-    pub fn next_turn(&mut self) -> usize {
-        self.current_player_index = (self.current_player_index + 1) % self.players.len();
-
-        self.current_player_index
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use uuid::Uuid;
-    use crate::Player;
-    use super::Game;
+async fn handle_logout_request(
+    socket: SocketRef,
+    data: GameRequest,
+    ack: AckSender,
+    sender: mpsc::Sender<Event>,
+) {
+    if let GameRequest::Logout {
+        game_uuid,
+        player_uuid,
+    } = data
+    {
+        if socket.extensions.get::<Player>().is_some() {
+            sender
+                .send(Event::Game(GameEvent::Logout {
+                    game_uuid,
+                    player_uuid,
+                    ack,
+                }))
+                .await
+                .unwrap();
 
-    // === Game.new()
-
-    #[test]
-    fn test_new_game_tile_bag_initialized() {
-        let game = Game::new();
-        assert_eq!(game.tile_bag.len(), 98); // Official rules
-    }
-
-    // ===
-
-    #[test]
-    fn game_cannot_have_more_than_4_players() {
-        let mut game = Game::new();
-
-        for _ in 0..4 {
-            let uuid = Uuid::new_v4();
-            assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
+            socket.extensions.remove::<Player>().unwrap();
         }
-
-        let uuid = Uuid::new_v4();
-        assert!(game.register_player(Player::new(&uuid, "Player")).is_err());
     }
+}
 
-    #[test]
-    fn game_cannot_have_multiple_players_with_same_id() {
-        let mut game = Game::new();
-
-        let uuid = Uuid::new_v4();
-        assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
-
-        let uuid = Uuid::new_v4();
-        assert!(game.register_player(Player::new(&uuid, "Player")).is_ok());
-        assert!(game.register_player(Player::new(&uuid, "Player")).is_err());
+async fn handle_id_request(
+    socket: SocketRef,
+    data: GameRequest,
+    ack_sender: AckSender,
+    sender: mpsc::Sender<Event>,
+) {
+    if let GameRequest::Id { player_uuid } = data {
+        if socket.extensions.get::<Player>().is_none() {
+            sender
+                .send(Event::Game(GameEvent::WhoAmI {
+                    socket_ref: socket,
+                    player_uuid,
+                    ack_sender,
+                }))
+                .await
+                .unwrap()
+        }
     }
+}
 
-    #[test]
-    fn game_cannot_start_without_at_least_2_players() {
-        {
-            let mut game = Game::new();
+fn on_connect(socket: SocketRef, sender: mpsc::Sender<Event>) {
+    let sender_clone_1 = sender.clone();
+    let sender_clone_2 = sender.clone();
+    let sender_clone_3 = sender.clone();
 
-            // Zero players
-            assert!(game.start().is_err());
-        }
+    socket.on(
+        "register_request",
+        |socket: SocketRef, Data::<GameRequest>(data), ack: AckSender| async move {
+            handle_registration_request(socket, data, ack, sender_clone_1).await;
+        },
+    );
 
-        {
-            let mut game = Game::new();
+    socket.on(
+        "logout",
+        |socket: SocketRef, Data::<GameRequest>(data), ack: AckSender| async move {
+            handle_logout_request(socket, data, ack, sender_clone_2).await;
+        },
+    );
 
-            // One player
-            let uuid = Uuid::new_v4();
-            game.register_player(Player::new(&uuid, "Player")).unwrap();
-            assert!(game.start().is_err());
-        }
+    socket.on(
+        "whoami",
+        |socket: SocketRef, Data::<GameRequest>(message), ack: AckSender| async move {
+            handle_id_request(socket, message, ack, sender_clone_3).await;
+        },
+    );
+}
 
-        // >= 2 players
-        for n_players in 2..4 {
-            let mut game = Game::new();
+pub fn handle_events(event: Event, manager: &mut Manager) {
+    if let Game(event) = event {
+        match event {
+            // A player found a game and decided to play
+            GameEvent::Registration {
+                game_uuid,
+                player,
+                ack,
+            } => {
+                let response = match manager.register_player_to_game(&game_uuid, player) {
+                    Ok(player) => Response::from_data(player.get_id()),
+                    Err(error) => Response::from_error(error),
+                };
 
-            let uuid = Uuid::new_v4();
-            game.register_player(Player::new(&uuid, "Player")).unwrap();
-
-            for _ in 1..n_players {
-                let uuid = Uuid::new_v4();
-                game.register_player(Player::new(&uuid, "Player")).unwrap();
+                ack.send(&response).ok();
             }
 
-            assert!(game.start().is_ok());
+            // A player hit the `Log out` button
+            GameEvent::Logout {
+                game_uuid,
+                player_uuid,
+                ack,
+            } => {
+                let response = match manager.remove_player_from_game(&game_uuid, &player_uuid) {
+                    Err(error) => Response::from_error(error),
+                    Ok(_) => Response::from_data("Player successfully removed"),
+                };
+
+                ack.send(&response).unwrap();
+            }
+
+            // A player refreshed their page, flushing the data
+            GameEvent::WhoAmI {
+                socket_ref,
+                player_uuid,
+                ack_sender,
+            } => {
+                let response = match manager.player_from_uuid(&player_uuid) {
+                    Ok(player) => {
+                        socket_ref.extensions.insert::<Player>(player.clone());
+                        Response::from_data(player)
+                    }
+                    Err(error) => Response::from_error(error),
+                };
+
+                ack_sender.send(&response).unwrap();
+            }
         }
-    }
-
-    #[test]
-    fn game_can_give_a_registered_player() {
-        let mut game = Game::new();
-
-        let uuid_0 = Uuid::new_v4();
-        let uuid_1 = Uuid::new_v4();
-
-        assert!(game.register_player(Player::new(&uuid_0, "Player0")).is_ok());
-        assert!(game.register_player(Player::new(&uuid_1, "Player1")).is_ok());
-
-        assert!(game.get_player(&uuid_0).is_ok());
-        assert_eq!(*game.get_player(&uuid_0).unwrap().get_id(), uuid_0);
-        assert_eq!(game.get_player(&uuid_0).unwrap().get_name(), "Player0");
-
-        assert!(game.get_player(&uuid_1).is_ok());
-        assert_eq!(*game.get_player(&uuid_1).unwrap().get_id(), uuid_1);
-        assert_eq!(game.get_player(&uuid_1).unwrap().get_name(), "Player1");
-    }
-
-    #[test]
-    fn game_cannot_give_player_not_registered() {
-        let mut game = Game::new();
-
-        let uuid = Uuid::new_v4();
-        assert!(game.register_player(Player::new(&uuid, "Player0")).is_ok());
-
-        let uuid = Uuid::new_v4();
-        assert!(game.register_player(Player::new(&uuid, "Player1")).is_ok());
-
-        let uuid = Uuid::new_v4();
-        assert!(game.get_player(&uuid).is_err()); // Unknown player ID
-    }
-
-    #[test]
-    fn game_must_give_7_tiles_on_start() {
-        let mut game = Game::new();
-
-        let uuid_0 = Uuid::new_v4();
-        let uuid_1 = Uuid::new_v4();
-
-        game.register_player(Player::new(&uuid_0, "Player0")).unwrap();
-        game.register_player(Player::new(&uuid_1, "Player1")).unwrap();
-
-        game.start().unwrap();
-
-        assert_eq!(game.get_player_tiles(&uuid_0).unwrap().len(), 7);
-        assert_eq!(game.get_player_tiles(&uuid_1).unwrap().len(), 7);
-    }
-
-    #[test]
-    fn next_turn_works() {
-        let mut game = Game::new();
-
-        let uuid_0 = Uuid::new_v4();
-        let uuid_1 = Uuid::new_v4();
-
-        game.register_player(Player::new(&uuid_0, "Player0")).unwrap();
-        game.register_player(Player::new(&uuid_1, "Player1")).unwrap();
-
-        assert_eq!(game.current_player_index, 0);
-        assert_eq!(game.next_turn(), 1);
-        assert_eq!(game.next_turn(), 0);
     }
 }
