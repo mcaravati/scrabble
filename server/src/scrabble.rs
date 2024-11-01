@@ -99,6 +99,10 @@ impl Scrabble {
         self.players.iter().map(|x| x.get_id().clone()).collect()
     }
 
+    pub fn get_players(&self) -> Vec<Player> {
+        self.players.clone()
+    }
+
     fn give_tile(&mut self, player_id: &Uuid) -> Result<(), Error> {
         let tile = self.tile_bag.pop().ok_or(Error::NoMoreTiles)?;
 
@@ -168,8 +172,7 @@ impl Scrabble {
 
 #[cfg(test)]
 mod tests {
-    use super::Scrabble;
-    use crate::Player;
+    use super::{Player, Scrabble};
     use uuid::Uuid;
 
     // === Game.new()

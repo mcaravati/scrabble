@@ -71,6 +71,13 @@ impl Manager {
             None => Err(Error::PlayerNotRegistered),
         }
     }
+
+    pub fn get_players_for_game(&self, game_uuid: &Uuid) -> Vec<Player> {
+        match self.game_map.get(game_uuid) {
+            Some(game) => game.get_players(),
+            None => Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -6,19 +6,20 @@ mod player;
 mod response;
 mod scrabble;
 
+use crate::events::Event;
+use crate::manager::Manager;
 use axum::routing::get;
 use axum::Router;
 use serde::Serializer;
 use socketioxide::extract::SocketRef;
 use socketioxide::SocketIo;
 use std::fmt::Formatter;
+use std::str::FromStr;
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, Level};
 use tracing_subscriber::FmtSubscriber;
-
-use crate::events::Event;
-use crate::manager::Manager;
+use uuid::Uuid;
 
 #[derive(Copy, Clone, PartialEq)]
 struct Tile(char, usize);
@@ -89,9 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     io.dyn_ns("/game/{*game_uuid}", move |socket_ref: SocketRef| {
         let ns = socket_ref.ns();
-        debug!(%ns, "Namespace");
+        let game_uuid = Uuid::from_str(ns.split("/").last().unwrap()).unwrap();
 
-        return on_game_namespace_connect(socket_ref, sender_2);
+        return crate::game::on_connect(socket_ref, sender_2, game_uuid);
     })
     .unwrap();
 

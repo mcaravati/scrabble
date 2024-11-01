@@ -15,13 +15,14 @@ enum GameRequest {
     Register { game_uuid: Uuid, username: String },
     Logout { game_uuid: Uuid, player_uuid: Uuid },
     Id { player_uuid: Uuid },
+    PlayerList,
 }
 
 pub enum GameEvent {
     Registration {
+        socket_ref: SocketRef,
         game_uuid: Uuid,
         player: Player,
-        ack: AckSender,
     },
     Logout {
         game_uuid: Uuid,
@@ -33,12 +34,15 @@ pub enum GameEvent {
         player_uuid: Uuid,
         ack_sender: AckSender,
     },
+    PlayerList {
+        game_uuid: Uuid,
+        ack_sender: AckSender,
+    },
 }
 
 async fn handle_registration_request(
-    socket: SocketRef,
+    socket_ref: SocketRef,
     data: GameRequest,
-    ack: AckSender,
     sender: mpsc::Sender<Event>,
 ) {
     if let GameRequest::Register {
@@ -46,22 +50,22 @@ async fn handle_registration_request(
         username,
     } = data
     {
-        if socket.extensions.get::<Player>().is_none() {
+        if socket_ref.extensions.get::<Player>().is_none() {
             let uuid = Uuid::new_v4();
             let player = Player::new(&uuid, &username);
+
+            // Associate the player to the socket for easy access
+            socket_ref.extensions.insert::<Player>(player.clone());
 
             // Inform the manager there's a new player
             sender
                 .send(Event::Game(GameEvent::Registration {
+                    socket_ref,
                     game_uuid,
-                    player: player.clone(),
-                    ack,
+                    player,
                 }))
                 .await
                 .unwrap();
-
-            // Associate the player to the socket for easy access
-            socket.extensions.insert::<Player>(player);
 
             debug!(?uuid, %username, "Player connected");
         }
@@ -114,15 +118,33 @@ async fn handle_id_request(
     }
 }
 
-fn on_connect(socket: SocketRef, sender: mpsc::Sender<Event>) {
+async fn handle_player_list_request(
+    data: GameRequest,
+    ack_sender: AckSender,
+    game_uuid: Uuid,
+    sender: mpsc::Sender<Event>,
+) {
+    if let GameRequest::PlayerList {} = data {
+        sender
+            .send(Event::Game(GameEvent::PlayerList {
+                game_uuid,
+                ack_sender,
+            }))
+            .await
+            .unwrap()
+    }
+}
+
+pub fn on_connect(socket: SocketRef, sender: mpsc::Sender<Event>, game_uuid: Uuid) {
     let sender_clone_1 = sender.clone();
     let sender_clone_2 = sender.clone();
     let sender_clone_3 = sender.clone();
+    let sender_clone_4 = sender.clone();
 
     socket.on(
         "register_request",
-        |socket: SocketRef, Data::<GameRequest>(data), ack: AckSender| async move {
-            handle_registration_request(socket, data, ack, sender_clone_1).await;
+        |socket: SocketRef, Data::<GameRequest>(data)| async move {
+            handle_registration_request(socket, data, sender_clone_1).await;
         },
     );
 
@@ -139,6 +161,13 @@ fn on_connect(socket: SocketRef, sender: mpsc::Sender<Event>) {
             handle_id_request(socket, message, ack, sender_clone_3).await;
         },
     );
+
+    socket.on(
+        "player-list",
+        move |socket_ref: SocketRef, Data::<GameRequest>(data), ack_sender: AckSender| async move {
+            handle_player_list_request(data, ack_sender, game_uuid, sender_clone_4).await;
+        },
+    )
 }
 
 pub fn handle_events(event: Event, manager: &mut Manager) {
@@ -146,16 +175,16 @@ pub fn handle_events(event: Event, manager: &mut Manager) {
         match event {
             // A player found a game and decided to play
             GameEvent::Registration {
+                socket_ref,
                 game_uuid,
                 player,
-                ack,
             } => {
                 let response = match manager.register_player_to_game(&game_uuid, player) {
-                    Ok(player) => Response::from_data(player.get_id()),
+                    Ok(_) => Response::from_data(manager.get_players_for_game(&game_uuid)),
                     Err(error) => Response::from_error(error),
                 };
 
-                ack.send(&response).ok();
+                socket_ref.emit("player-registered", &response).ok();
             }
 
             // A player hit the `Log out` button
@@ -186,6 +215,14 @@ pub fn handle_events(event: Event, manager: &mut Manager) {
                     Err(error) => Response::from_error(error),
                 };
 
+                ack_sender.send(&response).unwrap();
+            }
+
+            GameEvent::PlayerList {
+                game_uuid,
+                ack_sender,
+            } => {
+                let response = Response::from_data(manager.get_players_for_game(&game_uuid));
                 ack_sender.send(&response).unwrap();
             }
         }
