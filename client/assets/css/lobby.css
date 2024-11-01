@@ -1,3 +1,17 @@
+ul#game-list {
+    padding-left: 0;
+    width: 100vw;
+    list-style: none;
+}
+
 .game {
     background-color: red;
+
+    width: 25em;
+    height: 4em;
+
+    border-radius: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
