@@ -17,8 +17,8 @@ impl Manager {
         };
 
         // For testing purpose
-        let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        result.game_map.insert(uuid, Scrabble::new());
+        // let uuid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        // result.game_map.insert(uuid, Scrabble::new());
 
         result
     }
@@ -90,6 +90,14 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::Deref;
+
+    fn create_player() -> Player {
+        let player_id = Uuid::new_v4();
+        let player_name = format!("Player_{player_id}");
+
+        Player::new(&player_id, &player_name)
+    }
 
     #[test]
     fn game_is_added_on_creation() {
@@ -100,5 +108,249 @@ mod tests {
         let game = manager.create_game();
 
         assert_eq!(manager.game_map.len(), 1);
+    }
+
+    #[test]
+    fn register_player_to_game__good_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+
+        let result = manager.register_player_to_game(&game_uuid, player.clone());
+        assert!(result.is_ok());
+        assert_eq!(player, result.unwrap().deref().clone());
+        assert_eq!(manager.get_players_for_game(&game_uuid), vec![player]);
+    }
+
+    #[test]
+    fn register_player_to_game__bad_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+        let random_id = Uuid::new_v4();
+
+        let result = manager.register_player_to_game(&random_id, player.clone());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::GameNotFound);
+        assert_eq!(manager.get_players_for_game(&game_uuid), vec![]);
+    }
+
+    #[test]
+    fn register_player_to_game__no_games() {
+        let mut manager = Manager::new();
+
+        let player = create_player();
+        let random_id = Uuid::new_v4();
+
+        let result = manager.register_player_to_game(&random_id, player.clone());
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::GameNotFound);
+    }
+
+    #[test]
+    fn remove_player_from_game__good_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+
+        manager
+            .register_player_to_game(&game_uuid, player.clone())
+            .unwrap();
+        let result = manager.remove_player_from_game(&game_uuid, player.get_id());
+        assert!(result.is_ok());
+        assert_eq!(manager.get_players_for_game(&game_uuid), vec![]);
+    }
+
+    #[test]
+    fn remove_player_from_game__bad_ids() {
+        {
+            let mut manager = Manager::new();
+
+            let game_uuid = manager.create_game();
+            let player = create_player();
+            let random_id = Uuid::new_v4();
+
+            manager
+                .register_player_to_game(&game_uuid, player.clone())
+                .unwrap();
+            let result = manager.remove_player_from_game(&random_id, player.get_id());
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::GameNotFound);
+            assert_eq!(manager.get_players_for_game(&game_uuid), vec![player]);
+        }
+
+        {
+            let mut manager = Manager::new();
+
+            let game_uuid = manager.create_game();
+            let player = create_player();
+            let random_id = Uuid::new_v4();
+
+            manager
+                .register_player_to_game(&game_uuid, player.clone())
+                .unwrap();
+            let result = manager.remove_player_from_game(&game_uuid, &random_id);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::PlayerNotRegistered);
+            assert_eq!(manager.get_players_for_game(&game_uuid), vec![player]);
+        }
+
+        {
+            let mut manager = Manager::new();
+
+            let game_uuid = manager.create_game();
+            let player = create_player();
+            let random_id = Uuid::new_v4();
+
+            manager
+                .register_player_to_game(&game_uuid, player.clone())
+                .unwrap();
+            let result = manager.remove_player_from_game(&random_id, &random_id);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::GameNotFound);
+            assert_eq!(manager.get_players_for_game(&game_uuid), vec![player]);
+        }
+    }
+
+    #[test]
+    fn player_from_uuid__good_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+
+        manager
+            .register_player_to_game(&game_uuid, player.clone())
+            .unwrap();
+        let result = manager.player_from_uuid(player.get_id());
+        assert!(result.is_ok());
+        assert_eq!(player, result.unwrap().deref().clone());
+    }
+
+    #[test]
+    fn player_from_uuid__bad_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+        let random_id = Uuid::new_v4();
+
+        manager
+            .register_player_to_game(&game_uuid, player.clone())
+            .unwrap();
+        let result = manager.player_from_uuid(&random_id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::PlayerNotRegistered);
+    }
+
+    #[test]
+    fn get_players_for_game__good_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+
+        manager
+            .register_player_to_game(&game_uuid, player.clone())
+            .unwrap();
+        let result = manager.get_players_for_game(&game_uuid);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result, vec![player]);
+    }
+
+    #[test]
+    fn get_players_for_game__bad_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+        let player = create_player();
+        let random_id = Uuid::new_v4();
+
+        manager
+            .register_player_to_game(&game_uuid, player.clone())
+            .unwrap();
+        let result = manager.get_players_for_game(&random_id);
+
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn start_game__good_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+
+        let player_1 = create_player();
+        let player_2 = create_player();
+
+        manager
+            .register_player_to_game(&game_uuid, player_1.clone())
+            .unwrap();
+        manager
+            .register_player_to_game(&game_uuid, player_2.clone())
+            .unwrap();
+        let result = manager.start_game(&game_uuid);
+
+        assert!(result.is_ok());
+
+        let map = result.unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(player_1.get_id()).unwrap().len(), 7);
+        assert_eq!(map.get(player_2.get_id()).unwrap().len(), 7);
+    }
+
+    #[test]
+    fn start_game__not_enough_players() {
+        {
+            let mut manager = Manager::new();
+            let game_uuid = manager.create_game();
+
+            let result = manager.start_game(&game_uuid);
+
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::NotEnoughPlayers);
+        }
+
+        {
+            let mut manager = Manager::new();
+            let game_uuid = manager.create_game();
+
+            let player = create_player();
+
+            manager
+                .register_player_to_game(&game_uuid, player.clone())
+                .unwrap();
+            let result = manager.start_game(&game_uuid);
+
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err(), Error::NotEnoughPlayers);
+        }
+    }
+
+    #[test]
+    fn start_game__bad_id() {
+        let mut manager = Manager::new();
+
+        let game_uuid = manager.create_game();
+
+        let player_1 = create_player();
+        let player_2 = create_player();
+
+        manager
+            .register_player_to_game(&game_uuid, player_1.clone())
+            .unwrap();
+        manager
+            .register_player_to_game(&game_uuid, player_2.clone())
+            .unwrap();
+
+        let random_uuid = Uuid::new_v4();
+        let result = manager.start_game(&random_uuid);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), Error::GameNotFound);
     }
 }
