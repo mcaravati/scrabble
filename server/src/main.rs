@@ -82,17 +82,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (layer, io) = SocketIo::new_layer();
 
-    let sender_1 = tx.clone();
-    let sender_2 = tx.clone();
-
-    io.ns("/", move |socket| {
-        crate::lobby::on_connect(socket, sender_1)
+    io.ns("/", {
+        let sender = tx.clone();
+        move |socket| crate::lobby::on_connect(socket, sender)
     });
-    io.dyn_ns("/game/{*game_uuid}", move |socket_ref: SocketRef| {
-        let ns = socket_ref.ns();
-        let game_uuid = Uuid::from_str(ns.split("/").last().unwrap()).unwrap();
+    io.dyn_ns("/game/{*game_uuid}", {
+        let sender = tx.clone();
+        move |socket_ref: SocketRef| {
+            let ns = socket_ref.ns();
+            let game_uuid = Uuid::from_str(ns.split("/").last().unwrap()).unwrap();
 
-        return crate::game::on_connect(socket_ref, sender_2, game_uuid);
+            return crate::game::on_connect(socket_ref, sender, game_uuid);
+        }
     })
     .unwrap();
 

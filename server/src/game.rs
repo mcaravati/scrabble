@@ -104,6 +104,8 @@ async fn handle_logout_request(
                 }))
                 .await
                 .unwrap();
+
+            debug!(%player_uuid, "Player logged out");
         }
     }
 }
@@ -160,46 +162,40 @@ async fn handle_start_game_request(
 }
 
 pub fn on_connect(socket: SocketRef, sender: mpsc::Sender<Event>, game_uuid: Uuid) {
-    let sender_clone_1 = sender.clone();
-    let sender_clone_2 = sender.clone();
-    let sender_clone_3 = sender.clone();
-    let sender_clone_4 = sender.clone();
-    let sender_clone_5 = sender.clone();
-
-    socket.on(
-        "register_request",
+    socket.on("register_request", {
+        let sender = sender.clone();
         |socket: SocketRef, Data::<GameRequest>(data), ack_sender: AckSender| async move {
-            handle_registration_request(socket, data, ack_sender, sender_clone_1).await;
-        },
-    );
+            handle_registration_request(socket, data, ack_sender, sender).await;
+        }
+    });
 
-    socket.on(
-        "logout",
+    socket.on("logout", {
+        let sender = sender.clone();
         |socket: SocketRef, Data::<GameRequest>(data), ack: AckSender| async move {
-            handle_logout_request(socket, data, ack, sender_clone_2).await;
-        },
-    );
+            handle_logout_request(socket, data, ack, sender).await;
+        }
+    });
 
-    socket.on(
-        "whoami",
+    socket.on("whoami", {
+        let sender = sender.clone();
         |socket: SocketRef, Data::<GameRequest>(message), ack: AckSender| async move {
-            handle_id_request(socket, message, ack, sender_clone_3).await;
-        },
-    );
+            handle_id_request(socket, message, ack, sender).await;
+        }
+    });
 
-    socket.on(
-        "player-list",
+    socket.on("player-list", {
+        let sender = sender.clone();
         move |socket_ref: SocketRef, Data::<GameRequest>(data), ack_sender: AckSender| async move {
-            handle_player_list_request(data, ack_sender, game_uuid, sender_clone_4).await;
-        },
-    );
+            handle_player_list_request(data, ack_sender, game_uuid, sender).await;
+        }
+    });
 
-    socket.on(
-        "start",
+    socket.on("start", {
+        let sender = sender.clone();
         move |socket: SocketRef, Data::<GameRequest>(data), ack: AckSender| async move {
-            handle_start_game_request(data, game_uuid, sender_clone_5).await;
-        },
-    )
+            handle_start_game_request(data, game_uuid, sender).await;
+        }
+    })
 }
 
 pub fn handle_events(event: Event, socket_io: &SocketIo, manager: &mut Manager) {
