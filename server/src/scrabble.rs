@@ -82,9 +82,15 @@ impl Scrabble {
         Ok(self.players.last().unwrap())
     }
 
-    pub fn remove_player(&mut self, player_uuid: &Uuid) {
-        self.players.retain(|x| x.get_id() != player_uuid);
-        self.racks.remove(player_uuid);
+    pub fn remove_player(&mut self, player_uuid: &Uuid) -> Result<(), Error> {
+        if self.racks.contains_key(player_uuid) {
+            self.players.retain(|x| x.get_id() != player_uuid);
+            self.racks.remove(player_uuid);
+
+            Ok(())
+        } else {
+            Err(Error::PlayerNotRegistered)
+        }
     }
 
     fn is_player_registered(&self, player: &Player) -> bool {
@@ -136,9 +142,11 @@ impl Scrabble {
         }
     }
 
-    fn start(&mut self) -> Result<(), Error> {
+    pub fn start(&mut self) -> Result<HashMap<Uuid, Vec<Tile>>, Error> {
         if self.players.len() < 2 {
             return Err(Error::NotEnoughPlayers);
+        } else if self.players.len() > 4 {
+            return Err(Error::TooManyPlayer);
         }
 
         let player_ids = self.get_player_ids();
@@ -149,7 +157,7 @@ impl Scrabble {
             }
         }
 
-        Ok(())
+        Ok(self.racks.clone())
     }
 
     pub fn display_board(&self) {

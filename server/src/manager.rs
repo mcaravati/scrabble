@@ -1,6 +1,6 @@
 use crate::player::Player;
 use crate::scrabble::Scrabble;
-use crate::Error;
+use crate::{Error, Tile};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -53,7 +53,7 @@ impl Manager {
         player_uuid: &Uuid,
     ) -> Result<(), Error> {
         match self.game_map.get_mut(game_uuid) {
-            Some(game) => Ok(game.remove_player(player_uuid)),
+            Some(game) => game.remove_player(player_uuid),
             None => Err(Error::GameNotFound),
         }
     }
@@ -76,6 +76,13 @@ impl Manager {
         match self.game_map.get(game_uuid) {
             Some(game) => game.get_players(),
             None => Vec::new(),
+        }
+    }
+
+    pub fn start_game(&mut self, game_uuid: &Uuid) -> Result<HashMap<Uuid, Vec<Tile>>, Error> {
+        match self.game_map.get_mut(game_uuid) {
+            Some(game) => game.start(),
+            None => Err(Error::GameNotFound),
         }
     }
 }

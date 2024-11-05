@@ -10,7 +10,7 @@ use crate::events::Event;
 use crate::manager::Manager;
 use axum::routing::get;
 use axum::Router;
-use serde::Serializer;
+use serde::{Deserialize, Serialize, Serializer};
 use socketioxide::extract::SocketRef;
 use socketioxide::SocketIo;
 use std::fmt::Formatter;
@@ -21,10 +21,10 @@ use tracing::{debug, Level};
 use tracing_subscriber::FmtSubscriber;
 use uuid::Uuid;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Serialize, Deserialize, Debug)]
 struct Tile(char, usize);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Error {
     NotEnoughPlayers,
     TooManyPlayer,
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
-                Event::Game(_) => crate::game::handle_events(event, &mut manager),
+                Event::Game(_) => crate::game::handle_events(event, &io, &mut manager),
                 Event::Lobby(_) => crate::lobby::handle_events(event, &mut manager),
             }
         }
